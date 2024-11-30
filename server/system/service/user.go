@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"log"
 
 	"github.com/cortezaproject/corteza/server/pkg/actionlog"
 	internalAuth "github.com/cortezaproject/corteza/server/pkg/auth"
@@ -333,6 +334,9 @@ func (svc user) Find(ctx context.Context, filter types.UserFilter) (uu types.Use
 		}
 
 		uu, f, err = store.SearchUsers(ctx, svc.store, filter)
+
+		log.Printf(">>>>>>>>>>>>>>>>>>>> called SearchUsers in store and found: %+v", uu)
+
 		if err != nil {
 			return err
 		}
@@ -342,10 +346,21 @@ func (svc user) Find(ctx context.Context, filter types.UserFilter) (uu types.Use
 		}
 
 		return uu.Walk(func(u *types.User) error {
+			rr, _, err := store.SearchRoles(ctx, svc.store, types.RoleFilter{MemberID: u.ID})
+			if err != nil {
+				return err
+			}
+
+			u.SetUserRoles(rr.IDs()...)
+
+			log.Printf(">>>>>>>>>>>>>>>>>>>>>> called walk onUser ID: %d, Roles: %+v, Email: %+v", u.ID, u.UserRoles, u.Email)
+			
 			svc.handlePrivateData(ctx, u)
 			return nil
 		})
 	}()
+
+	log.Printf(">>>>>>>>>>>>>>>>>>>> called find user with filter: %+v", filter)
 
 	return uu, f, svc.recordAction(ctx, uaProps, UserActionSearch, err)
 }

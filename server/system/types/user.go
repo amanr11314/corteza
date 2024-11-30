@@ -35,6 +35,8 @@ type (
 		// we're using this for auth/identifier purposes, to support Roles() func
 		// that satisfies Identifiable interface
 		roles []uint64
+
+		UserRoles []uint64 `json:"roles,omitempty"`
 	}
 
 	UserMeta struct {
@@ -137,6 +139,10 @@ func (u User) Roles() []uint64 {
 
 func (u *User) SetRoles(rr ...uint64) {
 	u.roles = rr
+}
+
+func (u *User) SetUserRoles(rr ...uint64) {
+	u.UserRoles = rr
 }
 
 func (u *User) Clone() *User {

@@ -14,6 +14,7 @@ import (
 	"github.com/cortezaproject/corteza/server/system/rest/request"
 	"github.com/go-chi/chi/v5"
 	"net/http"
+	"log"
 )
 
 type (
@@ -80,11 +81,15 @@ func NewUser(h UserAPI) *User {
 				return
 			}
 
+			log.Printf(">>>>>>>>>>>>>>>>>>>> received list user params: %+v", params)
+
 			value, err := h.List(r.Context(), params)
 			if err != nil {
 				api.Send(w, r, err)
 				return
 			}
+
+			log.Printf(">>>>>>>>>>>>>>>>>>>> received list user searched values: %+v, type: %T", value, value)
 
 			api.Send(w, r, value)
 		},
