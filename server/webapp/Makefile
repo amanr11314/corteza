@@ -3,7 +3,7 @@
 WGET         ?= wget
 WGET_FLAGS   ?= -q
 TAR          ?= tar
-TAR_FLAGS    ?= -xzmok
+TAR_FLAGS    ?= -xzmo
 RELEASE_PAGE ?= https://releases.cortezaproject.org/files
 APPS         ?= admin compose workflow reporter discovery privacy
 ALL_APPS     ?= $(APPS) one

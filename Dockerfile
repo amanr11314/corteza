@@ -1,71 +1,60 @@
-# build-stage
-FROM alpine:3 as build-stage
-
-# use docker build --build-arg VERSION=2021.9.0 .
-ARG VERSION=2022.9.0
-ARG SASS_VERSION=1.69.5
-ARG SERVER_VERSION=${VERSION}
-ARG WEBAPP_VERSION=${VERSION}
-ARG CORTEZA_SERVER_PATH=https://releases.cortezaproject.org/files/corteza-server-${SERVER_VERSION}-linux-amd64.tar.gz
-ARG CORTEZA_WEBAPP_PATH=https://releases.cortezaproject.org/files/corteza-webapp-${WEBAPP_VERSION}.tar.gz
-ARG SASS_URL=https://github.com/sass/dart-sass/releases/download/${SASS_VERSION}/dart-sass-${SASS_VERSION}-linux-x64.tar.gz
-
-RUN mkdir /tmp/server
-RUN mkdir /tmp/webapp
-
-ADD $CORTEZA_SERVER_PATH /tmp/server
-ADD $CORTEZA_WEBAPP_PATH /tmp/webapp
-
-RUN apk update && apk add --no-cache file
-RUN apk add curl
-
-RUN file "/tmp/server/$(basename $CORTEZA_SERVER_PATH)" | grep -q 'gzip' && \
-    tar zxvf "/tmp/server/$(basename $CORTEZA_SERVER_PATH)" -C / || \
-    cp -a "/tmp/server" /
-
-RUN mv /corteza-server /corteza
-
-WORKDIR /corteza
-
-RUN rm -rf /corteza/webapp
-
-RUN file "/tmp/webapp/$(basename $CORTEZA_WEBAPP_PATH)" | grep -q 'gzip' && \
-    mkdir /corteza/webapp && tar zxvf "/tmp/webapp/$(basename $CORTEZA_WEBAPP_PATH)" -C /corteza/webapp || \
-    cp -a "/tmp/webapp" /corteza/webapp
-
-WORKDIR /tmp
-
-RUN curl -sOL $SASS_URL
-RUN tar -xzf dart-sass-${SASS_VERSION}-linux-x64.tar.gz
-
-# deploy-stage
+# ubuntu image
 FROM ubuntu:20.04
 
-RUN apt-get -y update \
- && apt-get -y install \
-    ca-certificates \
+# Set environment variables to prevent prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Update package manager and install prerequisites 
+# install make for building local makefile
+RUN apt-get update && apt-get install -y \
     curl \
- && rm -rf /var/lib/apt/lists/*
+    ca-certificates \
+    wget \
+    make \
+    software-properties-common \
+    build-essential \
+    git \
+    && apt-get clean
 
-ENV STORAGE_PATH "/data"
-ENV CORREDOR_ADDR "corredor:80"
-ENV HTTP_ADDR "0.0.0.0:80"
-ENV HTTP_WEBAPP_ENABLED "true"
-ENV HTTP_WEBAPP_BASE_DIR "/corteza/webapp"
-ENV PATH "/opt/dart-sass:/corteza/bin:${PATH}"
+# sudo \
 
+# Install Node.js
+RUN curl -fsSL https://deb.nodesource.com/setup_14.x | bash - \
+    && apt-get install -y nodejs
+
+# Verify Node.js installation
+RUN node -v && npm -v
+
+# Install Go
+ENV GO_VERSION=1.22.0
+# RUN wget https://golang.org/dl/go${GO_VERSION}.linux-amd64.tar.gz \
+RUN wget https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz \
+    && tar -C /usr/local -xzf go${GO_VERSION}.linux-amd64.tar.gz \
+    && rm go${GO_VERSION}.linux-amd64.tar.gz
+
+# Set Go environment variables
+ENV PATH=$PATH:/usr/local/go/bin
+ENV GOPATH=/go
+
+# Verify Go installation
+RUN go version
+
+# copy local code
 WORKDIR /corteza
+COPY . .
 
-VOLUME /data
+# Go to server/webapp directory and run make with VERSION
+RUN cd server/webapp && make VERSION=2023.9.8
 
-COPY --from=build-stage /corteza ./
-COPY --from=build-stage /tmp/dart-sass /opt/dart-sass
+# Go to server directory and run make watch with sudo
+# RUN cd server && sudo make watch
+# RUN cd server && make watch
 
-HEALTHCHECK --interval=30s --start-period=1m --timeout=30s --retries=3 \
-    CMD curl --silent --fail --fail-early http://127.0.0.1:80/healthcheck || exit 1
+# Copy the entrypoint script into the container
+COPY entrypoint.sh /entrypoint.sh
 
-EXPOSE 80
+# Make the script executable
+RUN chmod +x /entrypoint.sh
 
-ENTRYPOINT ["./bin/corteza-server"]
-
-CMD ["serve-api"]
+# Set the entrypoint to run the script
+ENTRYPOINT ["/entrypoint.sh"]
