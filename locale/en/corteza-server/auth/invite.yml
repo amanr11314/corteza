@@ -10,5 +10,6 @@ template:
     buttons:
       password: Set password
 alert:
-  invalid-expired-invite-token: Invalid or expired user invite token, please request a password reset.
+  # invalid-expired-invite-token: Invalid or expired user invite token, please request a password reset.
+  invalid-expired-invite-token: Invalid or expired user invite token.
   success: Password successfully updated

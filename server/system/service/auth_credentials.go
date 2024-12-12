@@ -14,6 +14,7 @@ import (
 	"github.com/cortezaproject/corteza/server/pkg/rand"
 	"github.com/cortezaproject/corteza/server/store"
 	"github.com/cortezaproject/corteza/server/system/types"
+	"github.com/cortezaproject/corteza/server/pkg/label"
 	"github.com/dgryski/dgoogauth"
 	"golang.org/x/crypto/bcrypt"
 	rand2 "math/rand"
@@ -21,6 +22,7 @@ import (
 	"sort"
 	"strconv"
 	"time"
+	"log"
 )
 
 const (
@@ -146,8 +148,11 @@ func (svc *auth) loadUserFromToken(ctx context.Context, token, kind string) (u *
 			return
 		}
 
-		if err = store.DeleteCredentialByID(ctx, s, c.ID); err != nil {
-			return
+		// Keep invite token until it either expires or user actually uses it to set password
+		if c.Kind != credentialsTypeInviteEmailToken {
+			if err = store.DeleteCredentialByID(ctx, s, c.ID); err != nil {
+				return
+			}
 		}
 
 		if !c.Valid() || c.Credentials != credentials {
@@ -1222,6 +1227,23 @@ func (svc *auth) SendInviteEmail(ctx context.Context, email string) (err error) 
 			return err
 		}
 
+		store.Tx(ctx, svc.store, func(ctx context.Context, s store.Storer) (err error) {
+			// delete all previous invite-token credential for this user
+			credentialSvc := Credentials()
+			cc, err := credentialSvc.FindUserInviteCrendential(ctx, u.ID)
+			if err != nil {
+				log.Printf("Error in Finding User Invite credentials: %v", err)
+			} else {
+				for _, userCredential := range cc {
+					if err = store.DeleteCredentialByID(ctx, s, userCredential.ID); err != nil {
+						log.Printf("Error in Deleting User Invite credentials: %v", err)
+					}
+				}
+			}
+		
+			return nil
+		})
+
 		ctx = internalAuth.SetIdentityToContext(ctx, u)
 
 		token, err := svc.createUserToken(ctx, u, credentialsTypeInviteEmailToken)
@@ -1232,6 +1254,16 @@ func (svc *auth) SendInviteEmail(ctx context.Context, email string) (err error) 
 		err = svc.notifications.InviteEmail(ctx, u.Email, token)
 		if err != nil {
 			return err
+		}
+
+		// create sendInvite label for this user
+		sendInviteLabelresource := types.NewSimpleLabeledResource(u.ID, "user")
+		sendInviteLabelresource.SetLabel(types.SendInviteEmailLabel, "true")
+		
+		// update user label with key
+		// "inviteAccepted": "true"
+		if err = label.Create(ctx, svc.store, sendInviteLabelresource); err != nil {
+			log.Printf("Error in inviteAccepted label.Create: %v", err)
 		}
 
 		return nil
