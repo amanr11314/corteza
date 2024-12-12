@@ -142,6 +142,11 @@ func (svc user) FindByID(ctx context.Context, userID uint64) (u *types.User, err
 			return err
 		}
 
+		// Fetch InviteExpiresAt value
+		if u.InviteExpiresAt, err = fetchInviteExpiresAt(ctx, userID); err != nil {
+			return err
+		}
+
 		uaProps.setUser(u)
 
 		// If profile avatar settings is enabled and a user doesn't have an avatar image,
@@ -178,6 +183,11 @@ func (svc user) FindByEmail(ctx context.Context, email string) (u *types.User, e
 			return err
 		}
 
+		// Fetch InviteExpiresAt value
+		if u.InviteExpiresAt, err = fetchInviteExpiresAt(ctx, u.ID); err != nil {
+			return err
+		}
+
 		uaProps.setUser(u)
 
 		if !svc.ac.CanReadUser(ctx, u) {
@@ -202,6 +212,11 @@ func (svc user) FindByHandle(ctx context.Context, handle string) (u *types.User,
 	err = func() error {
 		u, err = store.LookupUserByHandle(ctx, svc.store, handle)
 		if u, err = svc.proc(ctx, u, err); err != nil {
+			return err
+		}
+
+		// Fetch InviteExpiresAt value
+		if u.InviteExpiresAt, err = fetchInviteExpiresAt(ctx, u.ID); err != nil {
 			return err
 		}
 
@@ -353,6 +368,11 @@ func (svc user) Find(ctx context.Context, filter types.UserFilter) (uu types.Use
 
 			u.SetUserRoles(rr.IDs()...)
 
+			// Fetch InviteExpiresAt value
+			if u.InviteExpiresAt, err = fetchInviteExpiresAt(ctx, u.ID); err != nil {
+				return err
+			}
+
 			log.Printf(">>>>>>>>>>>>>>>>>>>>>> called walk onUser ID: %d, Roles: %+v, Email: %+v", u.ID, u.UserRoles, u.Email)
 			
 			svc.handlePrivateData(ctx, u)
@@ -368,6 +388,7 @@ func (svc user) Find(ctx context.Context, filter types.UserFilter) (uu types.Use
 func (svc user) Create(ctx context.Context, new *types.User) (u *types.User, err error) {
 	var (
 		uaProps = &userActionProps{user: new}
+		isSendInviteEmail = false
 	)
 
 	err = func() (err error) {
@@ -418,17 +439,56 @@ func (svc user) Create(ctx context.Context, new *types.User) (u *types.User, err
 		new.ID = nextID()
 		new.CreatedAt = *now()
 
-		// consider email confirmed
-		// when creating user like this
-		new.EmailConfirmed = true
+		
+		// Check if the key "sendInviteEmail" exists and has the value "true"
+		if sendInviteEmailValue, exists := new.Labels[types.SendInviteEmailLabel]; exists && sendInviteEmailValue == "true" {
+			// set flag and delete from label
+			isSendInviteEmail = true
+
+			// remove label; set inside SendInviteEmail if actually email send
+			delete(new.Labels, types.SendInviteEmailLabel)
+
+			log.Printf("inside if emailNotConfirmed: %v", err)
+		} else {
+			log.Printf("inside else email confirmed: %v", err)
+			// consider email confirmed
+			// when creating user like this
+			new.EmailConfirmed = true
+		}
+
+		// check for reserved lables while creating user
+		if _, exists := new.Labels[types.InviteAcceptedLabel]; exists {
+			delete(new.Labels, types.InviteAcceptedLabel)
+		}
 
 		if err = store.CreateUser(ctx, svc.store, new); err != nil {
+			log.Printf("Error in store.CreateUser: %v", err)
 			return
 		}
 
-		if err = label.Create(ctx, svc.store, new); err != nil {
-			return
-		}
+		// if err = label.Create(ctx, svc.store, new); err != nil {
+		// 	log.Printf("Error in label.Create: %v", err)
+		// 	return
+		// }
+
+		// Check if the key "sendInviteEmail" exists and has the value "true"
+		if isSendInviteEmail {
+			log.Printf(">>>>>>>>>>>>>>>>>>>> $$$$$$$$$$$$$$$$$$$$$  called with SendInviteEmail: %+v", isSendInviteEmail)
+			authSvc := Auth(AuthOptions{})
+
+			if err = authSvc.SendInviteEmail(ctx, new.Email); err != nil {
+				return
+			}
+
+			// also send invite expiry information 
+			// Fetch InviteExpiresAt value
+			if new.InviteExpiresAt, err = fetchInviteExpiresAt(ctx, new.ID); err != nil {
+				return err
+			}
+
+			new.Labels = make(map[string]string)
+			new.Labels[types.SendInviteEmailLabel] = "true"
+		} 
 
 		_ = svc.eventbus.WaitFor(ctx, event.UserAfterCreate(new, u))
 		return
@@ -445,6 +505,7 @@ func (svc user) CreateWithAvatar(ctx context.Context, input *types.User, avatar 
 func (svc user) Update(ctx context.Context, upd *types.User) (u *types.User, err error) {
 	var (
 		uaProps = &userActionProps{update: upd}
+		isResendInviteEmail = false
 	)
 
 	err = func() (err error) {
@@ -485,6 +546,38 @@ func (svc user) Update(ctx context.Context, upd *types.User) (u *types.User, err
 		u.Kind = upd.Kind
 		u.UpdatedAt = now()
 
+		// Load Original Labels
+		if err = label.Load(ctx, svc.store, u); err != nil {
+			return err
+		}
+
+
+		// Check if the key "reSendInviteEmailValue" exists and has the value "true"
+		if reSendInviteEmailValue, exists := upd.Labels[types.ResendInviteEmailLabel]; exists && reSendInviteEmailValue == "true" {
+			log.Printf("inside resend invite email ifffff")
+
+			// check if already invite accepted then discard resend email
+			if inviteAcceptedValue, exists := u.Labels[types.InviteAcceptedLabel]; exists && inviteAcceptedValue == "true" {
+				isResendInviteEmail = false
+				log.Printf("inside resend invite email ifffff > inviteaccpeted")
+			} else {
+				log.Printf("inside resend invite email ifffff> elseeeee")
+				isResendInviteEmail = true
+
+				// new updated lables for this user
+				newEmptyLabelresource := types.NewSimpleLabeledResource(u.ID, "user")
+
+				// reset lables to empty
+				if err = label.Update(ctx, svc.store, newEmptyLabelresource); err != nil {
+					return
+				}
+				u.Labels = newEmptyLabelresource.GetLabels()
+			}
+
+			// remove label; set inside SendInviteEmail if actually email send
+			delete(upd.Labels, types.ResendInviteEmailLabel)
+		}
+
 		if upd.Meta != nil {
 			// Only update meta when set
 			u.Meta = upd.Meta
@@ -506,12 +599,35 @@ func (svc user) Update(ctx context.Context, upd *types.User) (u *types.User, err
 			return
 		}
 
-		if label.Changed(u.Labels, upd.Labels) {
-			if err = label.Update(ctx, svc.store, upd); err != nil {
+		// do not allow client to update labels directly
+		// if label.Changed(u.Labels, upd.Labels) {
+		// 	if err = label.Update(ctx, svc.store, upd); err != nil {
+		// 		return
+		// 	}
+
+		// 	u.Labels = upd.Labels
+		// }
+		
+		// Resend invite email
+		if isResendInviteEmail {
+			authSvc := Auth(AuthOptions{})
+
+			if err = authSvc.SendInviteEmail(ctx, upd.Email); err != nil {
 				return
 			}
 
-			u.Labels = upd.Labels
+			// also send invite expiry information 
+			// Fetch InviteExpiresAt value
+			if u.InviteExpiresAt, err = fetchInviteExpiresAt(ctx, u.ID); err != nil {
+				return err
+			}
+
+			u.Labels[types.SendInviteEmailLabel] = "true"
+		} else {
+			// keep existing labels in resp as well
+			// if err = label.Load(ctx, svc.store, u); err != nil {
+			// 	return err
+			// }
 		}
 
 		_ = svc.eventbus.WaitFor(ctx, event.UserAfterUpdate(upd, u))
@@ -1348,4 +1464,23 @@ func (svc user) generateUserAvatarInitial(ctx context.Context, u *types.User) (e
 	}
 
 	return nil
+}
+
+// New function to fetch the InviteExpiresAt value
+func fetchInviteExpiresAt(ctx context.Context, userID uint64) (*time.Time, error) {
+	credentialSvc := Credentials()
+
+	// Find user-related credentials
+	cc, err := credentialSvc.FindUserInviteCrendential(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return the ExpiresAt value from the first credential
+	for _, userCredential := range cc {
+		log.Printf("Fetched user credential: %+v", userCredential)
+		return userCredential.ExpiresAt, nil
+	}
+
+	return nil, nil // No credentials found
 }

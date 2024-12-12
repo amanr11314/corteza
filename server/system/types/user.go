@@ -37,6 +37,7 @@ type (
 		roles []uint64
 
 		UserRoles []uint64 `json:"roles,omitempty"`
+		InviteExpiresAt *time.Time `json:"inviteEmailExpiresAt"`
 	}
 
 	UserMeta struct {
@@ -119,6 +120,9 @@ type (
 const (
 	NormalUser UserKind = ""
 	SystemUser UserKind = "sys"
+	SendInviteEmailLabel = "sendInviteEmail"
+	ResendInviteEmailLabel = "reSendInviteEmail"
+	InviteAcceptedLabel = "inviteAccepted"
 )
 
 func (u User) String() string {

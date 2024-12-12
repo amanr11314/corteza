@@ -198,6 +198,8 @@ func New(ctx context.Context, log *zap.Logger, oa2m oauth2def.Manager, s store.S
 		Opt:                svc.opt,
 		Settings:           svc.settings,
 		Attachment:         systemService.DefaultAttachment,
+
+		Store: s,
 	}
 
 	external.Init(sesManager.Store())

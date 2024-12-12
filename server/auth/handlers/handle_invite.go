@@ -4,7 +4,9 @@ import (
 	"github.com/cortezaproject/corteza/server/auth/request"
 	"github.com/cortezaproject/corteza/server/system/service"
 	"github.com/cortezaproject/corteza/server/system/types"
+	"github.com/cortezaproject/corteza/server/pkg/label"
 	"go.uber.org/zap"
+	"log"
 )
 
 func (h *AuthHandlers) acceptInviteForm(req *request.AuthReq) (err error) {
@@ -62,6 +64,31 @@ func (h *AuthHandlers) acceptInviteProc(req *request.AuthReq) (err error) {
 			Type: "primary",
 			Text: t("invite.alert.success"),
 		})
+
+		// delete all invite-token credential for this user
+		credentialSvc := service.Credentials()
+		cc, err := credentialSvc.FindUserInviteCrendential(req.Context(), req.AuthUser.User.ID)
+		if err != nil {
+			log.Printf("Error in Finding User Invite credentials: %v", err)
+		} else {
+			for _, userCredential := range cc {
+				if err = h.Store.DeleteCredentialByID(req.Context(), userCredential.ID); err != nil {
+					log.Printf("Error in Deleting User Invite credentials: %v", err)
+				}
+			}
+		}
+
+		// create inviteAccepted label for this user
+		inviteAcceptedLabelresource := types.NewSimpleLabeledResource(req.AuthUser.User.ID, "user")
+
+
+		inviteAcceptedLabelresource.SetLabel(types.InviteAcceptedLabel, "true")
+		
+		// update user label with key
+		// "inviteAccepted": "true"
+		if err = label.Create(req.Context(), h.Store, inviteAcceptedLabelresource); err != nil {
+			log.Printf("Error in inviteAccepted label.Create: %v", err)
+		}
 
 		req.RedirectTo = GetLinks().Profile
 		return nil

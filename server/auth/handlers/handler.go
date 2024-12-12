@@ -30,6 +30,8 @@ import (
 	"github.com/markbates/goth"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
+
+	"github.com/cortezaproject/corteza/server/store"
 )
 
 type (
@@ -131,6 +133,8 @@ type (
 		Settings           *settings.Settings
 		SamlSPService      *saml.SamlSPService
 		Attachment         service.AttachmentService
+
+		Store store.Storer
 	}
 
 	handlerFn func(req *request.AuthReq) error

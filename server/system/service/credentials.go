@@ -56,6 +56,27 @@ func (svc *credentials) List(ctx context.Context, userID uint64) (cc types.Crede
 	return cc, svc.recordAction(ctx, caProps, CredentialsActionSearch, err)
 }
 
+func (svc *credentials) FindUserInviteCrendential(ctx context.Context, userID uint64) (cc types.CredentialSet, err error) {
+	var (
+		u *types.User
+
+		caProps = &credentialsActionProps{user: &types.User{ID: userID}}
+	)
+
+	err = func() error {
+		u, err = loadUser(ctx, svc.store, userID)
+		if err != nil {
+			return err
+		}
+		caProps.setUser(u)
+
+		cc, _, err = store.SearchCredentials(ctx, svc.store, types.CredentialFilter{OwnerID: u.ID, Kind: credentialsTypeInviteEmailToken})
+		return err
+	}()
+
+	return cc, svc.recordAction(ctx, caProps, CredentialsActionSearch, err)
+}
+
 func (svc *credentials) Create(ctx context.Context, c *types.Credential) (out *types.Credential, err error) {
 	var (
 		u       *types.User
