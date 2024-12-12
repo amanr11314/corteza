@@ -20,6 +20,39 @@ import (
 	"github.com/doug-martin/goqu/v9/exp"
 )
 
+func customRoleFilter(d drivers.Dialect, f systemType.RoleFilter) (ee []goqu.Expression, _ systemType.RoleFilter, err error) {
+
+	if expr := stateNilComparison(d, "deleted_at", f.Deleted); expr != nil {
+		ee = append(ee, expr)
+	}
+
+	if expr := stateNilComparison(d, "archived_at", f.Archived); expr != nil {
+		ee = append(ee, expr)
+	}
+
+	if len(f.RoleID) > 0 {
+		ee = append(ee, goqu.C("id").In(f.RoleID))
+	}
+
+	if val := strings.TrimSpace(f.Name); len(val) > 0 {
+		ee = append(ee, goqu.C("name").Eq(f.Name))
+	}
+
+	if val := strings.TrimSpace(f.Handle); len(val) > 0 {
+		ee = append(ee, goqu.C("handle").Eq(f.Handle))
+	}
+
+	if len(f.LabeledIDs) > 0 {
+		ee = append(ee, goqu.I("id").In(f.LabeledIDs))
+	}
+
+	if f.Query != "" {
+		ee = append(ee, goqu.C("handle").ILike("%"+f.Query+"%"))
+	}
+
+	return ee, f, err
+}
+
 func DefaultFilters() (f *extendedFilters) {
 	f = &extendedFilters{}
 
@@ -206,7 +239,7 @@ func DefaultFilters() (f *extendedFilters) {
 	}
 
 	f.Role = func(s *Store, f systemType.RoleFilter) (ee []goqu.Expression, _ systemType.RoleFilter, err error) {
-		if ee, f, err = RoleFilter(s.Dialect, f); err != nil {
+		if ee, f, err = customRoleFilter(s.Dialect, f); err != nil {
 			return
 		}
 
