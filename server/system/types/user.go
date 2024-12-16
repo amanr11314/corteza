@@ -36,7 +36,7 @@ type (
 		// that satisfies Identifiable interface
 		roles []uint64
 
-		UserRoles []uint64 `json:"roles,omitempty"`
+		UserRoles []string `json:"roles,omitempty"`
 		InviteExpiresAt *time.Time `json:"inviteEmailExpiresAt"`
 	}
 
@@ -146,7 +146,11 @@ func (u *User) SetRoles(rr ...uint64) {
 }
 
 func (u *User) SetUserRoles(rr ...uint64) {
-	u.UserRoles = rr
+	// Convert each uint64 value to a string and store it in UserRoles
+	u.UserRoles = make([]string, len(rr))
+	for i, role := range rr {
+		u.UserRoles[i] = fmt.Sprintf("%d", role) // Convert uint64 to string
+	}
 }
 
 func (u *User) Clone() *User {
