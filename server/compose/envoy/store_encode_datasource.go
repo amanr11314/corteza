@@ -348,9 +348,25 @@ func (e StoreEncoder) recordMaker(ns *types.Namespace, mod *types.Module, record
 			}
 
 			// Default is regular values
-			err = rec.SetValue(k, 0, v)
-			if err != nil {
-				return
+
+			// find field info
+			f := mod.Fields.FindByName(k)
+			
+			if f.Multi {
+				// if multi field then iterate over comma separated values string and assign position idx incremented manner
+				// Split comma separated values and assign with incremented positions
+				values := strings.Split(v, ",")
+				for idx, val := range values {
+					err = rec.SetValue(k, uint(idx), strings.TrimSpace(val))
+					if err != nil {
+						return
+					}
+				}
+			} else {
+				err = rec.SetValue(k, 0, v)
+				if err != nil {
+					return
+				}
 			}
 		}
 

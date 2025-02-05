@@ -227,8 +227,22 @@ func (d *composeDecoder) decodeComposeRecord(ctx context.Context, s store.Storer
 
 	mapValues := func(r *types.Record) map[string]string {
 		rr := make(map[string]string)
+		
+		// Group values by name to handle multi-value fields
+		valuesByName := make(map[string][]string)
 		for _, v := range r.Values {
-			rr[v.Name] = v.Value
+			valuesByName[v.Name] = append(valuesByName[v.Name], v.Value)
+		}
+
+		// Convert to final format
+		for name, values := range valuesByName {
+			if len(values) > 1 {
+				// Multi-value field - store as comma-separated string
+				rr[name] = strings.Join(values, ",")
+			} else if len(values) == 1 {
+				// Single value field
+				rr[name] = values[0]
+			}
 		}
 
 		return rr
